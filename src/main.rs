@@ -104,7 +104,7 @@ fn main() {
         let combinations: Vec<Vec<&usize>> = indices.iter().combinations(nbr).collect();
 
         let combinations = combinations
-            // .par_iter()
+            // .into_par_iter()
             .into_iter()
             .progress()
             // .progress_count(count_combinations(games.len() as u64, nbr as u64))
