@@ -1,6 +1,10 @@
-use indicatif::{ParallelProgressIterator, ProgressIterator};
+use std::{
+    sync::{Arc, Mutex},
+    thread,
+};
+
+use indicatif::ProgressIterator;
 use itertools::Itertools;
-use rayon::prelude::*;
 
 #[derive(Debug, PartialEq)]
 struct Game<'a> {
@@ -35,13 +39,13 @@ fn budget(games: &[Game<'_>], selection: &[usize]) -> f32 {
         .fold(0.0, |x, &index| x + games[index].price)
 }
 
-fn count_combinations(n: u64, r: u64) -> u64 {
-    if r > n {
-        0
-    } else {
-        (1..=r.min(n - r)).fold(1, |acc, val| acc * (n - val + 1) / val)
-    }
-}
+// fn count_combinations(n: u64, r: u64) -> u64 {
+//     if r > n {
+//         0
+//     } else {
+//         (1..=r.min(n - r)).fold(1, |acc, val| acc * (n - val + 1) / val)
+//     }
+// }
 
 fn main() {
     let source = include_str!("../data.csv");
@@ -117,20 +121,49 @@ fn main() {
             })
             .map(|x| x.iter().map(|&y| *y).collect::<Vec<usize>>());
 
+        let best_semi_local_liking = Arc::new(Mutex::new(0.));
+        let best_semi_local_price = Arc::new(Mutex::new(0.));
+        let best_semi_local_combination = Arc::new(Mutex::new(None));
+
         for combination in combinations {
-            for perm in combination
-                .iter()
-                .permutations(combination.len())
-                .map(|x| x.iter().map(|&y| *y).collect::<Vec<usize>>())
-            {
-                let liking = get_liking(&combination, &notes, &means);
-                if liking > best_liking {
-                    let price = budget(&games, &perm);
-                    best_liking = liking;
-                    best_price = price;
-                    best_combination = Some(perm);
-                }
-            }
+            thread::scope(|s| {
+                s.spawn(|| {
+                    let mut best_local_liking = 0.0;
+                    let mut best_local_price = 0.0;
+                    let mut best_local_combination: Option<Vec<usize>> = None;
+
+                    for perm in combination
+                        .iter()
+                        .permutations(combination.len())
+                        .map(|x| x.iter().map(|&y| *y).collect::<Vec<usize>>())
+                    {
+                        let liking = get_liking(&combination, &notes, &means);
+                        if liking > best_local_liking {
+                            let price = budget(&games, &perm);
+                            best_local_liking = liking;
+                            best_local_price = price;
+                            best_local_combination = Some(perm);
+                        }
+                    }
+
+                    let mut best_semi_local_liking = best_semi_local_liking.lock().unwrap();
+                    let mut best_semi_local_price = best_semi_local_price.lock().unwrap();
+                    let mut best_semi_local_combination =
+                        best_semi_local_combination.lock().unwrap();
+                    if best_local_liking > *best_semi_local_liking {
+                        *best_semi_local_liking = best_local_liking;
+                        *best_semi_local_price = best_local_price;
+                        *best_semi_local_combination = best_local_combination;
+                    }
+                });
+            });
+        }
+
+        let v = best_semi_local_liking.lock().unwrap();
+        if *v > best_liking {
+            best_liking = *v;
+            best_price = *best_semi_local_price.lock().unwrap();
+            best_combination = best_semi_local_combination.lock().unwrap().take();
         }
 
         println!("Best liking is {best_liking}");
