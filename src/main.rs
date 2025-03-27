@@ -125,38 +125,40 @@ fn main() {
         let best_semi_local_price = Arc::new(Mutex::new(0.));
         let best_semi_local_combination = Arc::new(Mutex::new(None));
 
-        for combination in combinations {
-            thread::scope(|s| {
-                s.spawn(|| {
-                    let mut best_local_liking = 0.0;
-                    let mut best_local_price = 0.0;
-                    let mut best_local_combination: Option<Vec<usize>> = None;
+        for chunk in &combinations.chunks(10000) {
+            for combination in chunk {
+                thread::scope(|s| {
+                    s.spawn(|| {
+                        let mut best_local_liking = 0.0;
+                        let mut best_local_price = 0.0;
+                        let mut best_local_combination: Option<Vec<usize>> = None;
 
-                    for perm in combination
-                        .iter()
-                        .permutations(combination.len())
-                        .map(|x| x.iter().map(|&y| *y).collect::<Vec<usize>>())
-                    {
-                        let liking = get_liking(&combination, &notes, &means);
-                        if liking > best_local_liking {
-                            let price = budget(&games, &perm);
-                            best_local_liking = liking;
-                            best_local_price = price;
-                            best_local_combination = Some(perm);
+                        for perm in combination
+                            .iter()
+                            .permutations(combination.len())
+                            .map(|x| x.iter().map(|&y| *y).collect::<Vec<usize>>())
+                        {
+                            let liking = get_liking(&combination, &notes, &means);
+                            if liking > best_local_liking {
+                                let price = budget(&games, &perm);
+                                best_local_liking = liking;
+                                best_local_price = price;
+                                best_local_combination = Some(perm);
+                            }
                         }
-                    }
 
-                    let mut best_semi_local_liking = best_semi_local_liking.lock().unwrap();
-                    let mut best_semi_local_price = best_semi_local_price.lock().unwrap();
-                    let mut best_semi_local_combination =
-                        best_semi_local_combination.lock().unwrap();
-                    if best_local_liking > *best_semi_local_liking {
-                        *best_semi_local_liking = best_local_liking;
-                        *best_semi_local_price = best_local_price;
-                        *best_semi_local_combination = best_local_combination;
-                    }
+                        let mut best_semi_local_liking = best_semi_local_liking.lock().unwrap();
+                        let mut best_semi_local_price = best_semi_local_price.lock().unwrap();
+                        let mut best_semi_local_combination =
+                            best_semi_local_combination.lock().unwrap();
+                        if best_local_liking > *best_semi_local_liking {
+                            *best_semi_local_liking = best_local_liking;
+                            *best_semi_local_price = best_local_price;
+                            *best_semi_local_combination = best_local_combination;
+                        }
+                    });
                 });
-            });
+            }
         }
 
         let v = best_semi_local_liking.lock().unwrap();
